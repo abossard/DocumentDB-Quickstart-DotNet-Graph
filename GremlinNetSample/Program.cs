@@ -14,7 +14,7 @@ namespace GremlinNetSample
     /// <summary>
     /// Sample program that shows how to get started with the Graph (Gremlin) APIs for Azure Cosmos DB using the open-source connector Gremlin.Net
     /// </summary>
-    class Program
+    internal static class Program
     {
 
         // Starts a console application that executes every Gremlin query in the gremlinQueries dictionary. 
@@ -22,12 +22,20 @@ namespace GremlinNetSample
         {
             Env.Load();
             
-            string hostname = Env.GetString("HOSTNAME");
-            int port = Env.GetInt("PORT");
-            string authKey = Env.GetString("AUTHKEY");
-            string database = Env.GetString("DATABASE");
-            string collection = Env.GetString("COLLECTION");
-
+            var hostname = Env.GetString("HOSTNAME");
+            var port = Env.GetInt("PORT");
+            var authKey = Env.GetString("AUTHKEY");
+            var database = Env.GetString("DATABASE");
+            var collection = Env.GetString("COLLECTION");
+            var continueOnErrorString = Env.GetString("CONTINUE_ON_ERROR");
+            // Check if any of the environment variables are null
+            if (hostname == null || port == 0 || authKey == null || database == null || collection == null || continueOnErrorString == null)
+            {
+                Console.WriteLine("One or more environment variables are not set. Please copy the .env.sample into .env and update the values.");
+                return;
+            }
+            var continueOnError = bool.Parse(continueOnErrorString);
+            
             string filename = args[0];
 
             var fileContent = File.ReadAllLines(filename).ToList();
@@ -43,7 +51,7 @@ namespace GremlinNetSample
                     Console.WriteLine(String.Format("Running this query: {0}", query));
 
                     // Create async task to execute the Gremlin query.
-                    var resultSet = SubmitRequest(gremlinClient, query).Result;
+                    var resultSet = SubmitRequest(gremlinClient, query, continueOnError).Result;
                     if (resultSet.Count > 0)
                     {
                         Console.WriteLine("\tResult:");
@@ -70,7 +78,7 @@ namespace GremlinNetSample
             Console.ReadLine();
         }
 
-        private static Task<ResultSet<dynamic>> SubmitRequest(GremlinClient gremlinClient, string query)
+        private static Task<ResultSet<dynamic>> SubmitRequest(GremlinClient gremlinClient, string query, bool continueOnError = false)
         {
             try
             {
@@ -93,7 +101,14 @@ namespace GremlinNetSample
                 Console.WriteLine($"\t[\"x-ms-retry-after-ms\"] : {GetValueAsString(e.StatusAttributes, "x-ms-retry-after-ms")}");
                 Console.WriteLine($"\t[\"x-ms-activity-id\"] : {GetValueAsString(e.StatusAttributes, "x-ms-activity-id")}");
 
-                throw;
+                if(continueOnError)
+                {
+                    return Task.FromResult(new ResultSet<dynamic>(null, new Dictionary<string, object>()));
+                }
+                else
+                {
+                    throw;
+                }
             }
         }
 
