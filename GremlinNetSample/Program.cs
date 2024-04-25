@@ -16,12 +16,11 @@ namespace GremlinNetSample
     /// </summary>
     internal static class Program
     {
-
         // Starts a console application that executes every Gremlin query in the gremlinQueries dictionary. 
-        static void Main(string[] args)
+        private static async Task Main(string[] args)
         {
             Env.Load();
-            
+
             var hostname = Env.GetString("HOSTNAME");
             var port = Env.GetInt("PORT");
             var authKey = Env.GetString("AUTHKEY");
@@ -29,30 +28,35 @@ namespace GremlinNetSample
             var collection = Env.GetString("COLLECTION");
             var continueOnErrorString = Env.GetString("CONTINUE_ON_ERROR");
             // Check if any of the environment variables are null
-            if (hostname == null || port == 0 || authKey == null || database == null || collection == null || continueOnErrorString == null)
+            if (hostname == null || port == 0 || authKey == null || database == null || collection == null ||
+                continueOnErrorString == null)
             {
-                Console.WriteLine("One or more environment variables are not set. Please copy the .env.sample into .env and update the values.");
+                Console.WriteLine(
+                    "One or more environment variables are not set. Please copy the .env.sample into .env and update the values.");
                 return;
             }
-            var continueOnError = bool.Parse(continueOnErrorString);
-            
-            string filename = args[0];
 
-            var fileContent = File.ReadAllLines(filename).ToList();
+            var continueOnError = bool.Parse(continueOnErrorString);
+
+            var filename = args[0];
+
+            var fileContent = (await File.ReadAllLinesAsync(filename)).ToList();
 
             var gremlinServer = new GremlinServer(hostname, port, enableSsl: true,
-                                                    username: "/dbs/" + database + "/colls/" + collection,
-                                                    password: authKey);
+                username: "/dbs/" + database + "/colls/" + collection,
+                password: authKey);
 
-            using (var gremlinClient = new GremlinClient(gremlinServer, new GraphSON2Reader(), new GraphSON2Writer(), GremlinClient.GraphSON2MimeType))
+            using var gremlinClient = new GremlinClient(gremlinServer, new GraphSON2Reader(), new GraphSON2Writer(),
+                GremlinClient.GraphSON2MimeType);
+            foreach (var query in fileContent)
             {
-                foreach (var query in fileContent)
-                {
-                    Console.WriteLine(String.Format("Running this query: {0}", query));
+                Console.WriteLine($"Running this query: {query}");
 
-                    // Create async task to execute the Gremlin query.
-                    var resultSet = SubmitRequest(gremlinClient, query, continueOnError).Result;
-                    if (resultSet.Count > 0)
+                // Create async task to execute the Gremlin query.
+                try
+                {
+                    var resultSet = await SubmitRequest(gremlinClient, query);
+                    if (resultSet is { Count: > 0 })
                     {
                         Console.WriteLine("\tResult:");
                         foreach (var result in resultSet)
@@ -61,6 +65,7 @@ namespace GremlinNetSample
                             string output = JsonConvert.SerializeObject(result);
                             Console.WriteLine($"\t{output}");
                         }
+
                         Console.WriteLine();
                     }
 
@@ -68,21 +73,25 @@ namespace GremlinNetSample
                     // This includes the following:
                     //  x-ms-status-code            : This is the sub-status code which is specific to Cosmos DB.
                     //  x-ms-total-request-charge   : The total request units charged for processing a request.
-                    PrintStatusAttributes(resultSet.StatusAttributes);
+
                     Console.WriteLine();
                 }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"\tError: {e.Message}");
+                    if (!continueOnError)
+                    {
+                        break;
+                    }
+                }
             }
-
-            // Exit program
-            Console.WriteLine("Done. Press any key to exit...");
-            Console.ReadLine();
         }
-
-        private static Task<ResultSet<dynamic>> SubmitRequest(GremlinClient gremlinClient, string query, bool continueOnError = false)
+        
+        private static async Task<ResultSet<dynamic>> SubmitRequest(IGremlinClient gremlinClient, string query)
         {
             try
             {
-                return gremlinClient.SubmitAsync<dynamic>(query);
+                return await gremlinClient.SubmitAsync<dynamic>(query);
             }
             catch (ResponseException e)
             {
@@ -98,17 +107,11 @@ namespace GremlinNetSample
                 //                              : attribute 'x-ms-status-code' returns 429.
                 //  x-ms-activity-id            : Represents a unique identifier for the operation. Commonly used for troubleshooting purposes.
                 PrintStatusAttributes(e.StatusAttributes);
-                Console.WriteLine($"\t[\"x-ms-retry-after-ms\"] : {GetValueAsString(e.StatusAttributes, "x-ms-retry-after-ms")}");
-                Console.WriteLine($"\t[\"x-ms-activity-id\"] : {GetValueAsString(e.StatusAttributes, "x-ms-activity-id")}");
-
-                if(continueOnError)
-                {
-                    return Task.FromResult(new ResultSet<dynamic>(null, new Dictionary<string, object>()));
-                }
-                else
-                {
-                    throw;
-                }
+                Console.WriteLine(
+                    $"\t[\"x-ms-retry-after-ms\"] : {GetValueAsString(e.StatusAttributes, "x-ms-retry-after-ms")}");
+                Console.WriteLine(
+                    $"\t[\"x-ms-activity-id\"] : {GetValueAsString(e.StatusAttributes, "x-ms-activity-id")}");
+                throw;
             }
         }
 
@@ -116,22 +119,13 @@ namespace GremlinNetSample
         {
             Console.WriteLine($"\tStatusAttributes:");
             Console.WriteLine($"\t[\"x-ms-status-code\"] : {GetValueAsString(attributes, "x-ms-status-code")}");
-            Console.WriteLine($"\t[\"x-ms-total-request-charge\"] : {GetValueAsString(attributes, "x-ms-total-request-charge")}");
+            Console.WriteLine(
+                $"\t[\"x-ms-total-request-charge\"] : {GetValueAsString(attributes, "x-ms-total-request-charge")}");
         }
 
-        public static string GetValueAsString(IReadOnlyDictionary<string, object> dictionary, string key)
+        private static string GetValueAsString(IReadOnlyDictionary<string, object> dictionary, string key)
         {
-            return JsonConvert.SerializeObject(GetValueOrDefault(dictionary, key));
-        }
-
-        public static object GetValueOrDefault(IReadOnlyDictionary<string, object> dictionary, string key)
-        {
-            if (dictionary.ContainsKey(key))
-            {
-                return dictionary[key];
-            }
-
-            return null;
+            return JsonConvert.SerializeObject(dictionary.GetValueOrDefault(key));
         }
     }
 }
