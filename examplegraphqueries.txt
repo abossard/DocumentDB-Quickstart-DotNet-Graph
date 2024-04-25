@@ -1,0 +1,2 @@
+g.addV('org').property('id', 'org123').property('orgPartitionKey', 'org123')
+g.addV('org').property('id', 'org1234').property('orgPartitionKey', 'org1234')
