@@ -73,12 +73,13 @@ namespace GremlinNetSample
                     // This includes the following:
                     //  x-ms-status-code            : This is the sub-status code which is specific to Cosmos DB.
                     //  x-ms-total-request-charge   : The total request units charged for processing a request.
-
+                    
                     Console.WriteLine();
                 }
                 catch (Exception e)
                 {
                     Console.WriteLine($"\tError: {e.Message}");
+                    Console.WriteLine($"\tFull Message: {e}");
                     if (!continueOnError)
                     {
                         break;
